@@ -3,6 +3,7 @@ from skyfield.api import load, wgs84
 from datetime import timezone, timedelta
 import subprocess
 import os
+import noaa_apt
 
 RECORD_DIR = "records"
 os.makedirs(RECORD_DIR, exist_ok=True)
@@ -101,6 +102,18 @@ def record_pass(aos_dt, los_dt):
     p2.wait(timeout=duration + 60)
 
     return wav_path
+
+
+def decode_apt(wav_path, sat_name, aos_dt_msk):
+    # Формируем имя файла без пробелов, в МСК
+    img_name = f"{sat_name}_{aos_dt_msk.strftime('%Y%m%d_%H%M%S')}.png"
+    img_path = os.path.join(RECORD_DIR, img_name)
+
+    print(f"Декодирую WAV → PNG: {img_path}")
+    image = noaa_apt.decode(wav_path)
+    image.save(img_path)
+
+    return img_path
 
 
 # ------------------------------------------------------------
