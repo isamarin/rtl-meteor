@@ -104,6 +104,7 @@ def record_pass(aos_dt, los_dt):
     return wav_path
 
 
+
 def decode_apt(wav_path, sat_name, aos_dt_msk):
     # Формируем имя файла без пробелов, в МСК
     img_name = f"{sat_name}_{aos_dt_msk.strftime('%Y%m%d_%H%M%S')}.png"
@@ -114,6 +115,7 @@ def decode_apt(wav_path, sat_name, aos_dt_msk):
     image.save(img_path)
 
     return img_path
+
 
 
 # ------------------------------------------------------------
@@ -136,15 +138,30 @@ def decode_apt(wav_path, sat_name, aos_dt_msk):
 # ------------------------------------------------------------.
 
 if __name__ == "__main__":
-    ts, noaa18 = load_noaa_sat()
-    p = next_pass(ts, noaa18)
-    if p:
-        print("Следующий пролёт NOAA‑18:")
-        for k, v in p.items():
-            # Skyfield → datetime без tzinfo → добавляем UTC
-            dt_utc = v.utc_datetime().replace(tzinfo=timezone.utc)
+    ts, sat = load_noaa_sat()
+    p = next_pass(ts, sat)
 
-            # Выводим сразу в московском времени
-            print(f"{k.upper()}: {fmt(dt_utc)}")
-    else:
+    if not p:
         print("Пролётов в ближайшие часы нет.")
+        exit(0)
+
+    now_utc = datetime.now(timezone.utc)
+
+    aos_utc = p['aos'].utc_datetime().replace(tzinfo=timezone.utc)
+    los_utc = p['los'].utc_datetime().replace(tzinfo=timezone.utc)
+
+    # Конвертация в МСК
+    aos_msk = aos_utc.astimezone(MSK)
+
+    # Проверяем, попали ли мы в окно пролёта
+    if aos_utc <= now_utc <= los_utc:
+        print("Мы внутри окна пролёта — начинаем запись и декодирование.")
+
+        wav_path = record_pass(aos_utc, los_utc)
+
+        sat_name = sat.name.replace(" ", "")  # NOAA18 без пробелов
+        img_path = decode_apt(wav_path, sat_name, aos_msk)
+
+        print(f"Готово! Картинка сохранена: {img_path}")
+    else:
+        print("Сейчас не время пролёта.")
