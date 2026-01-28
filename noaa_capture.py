@@ -135,6 +135,19 @@ def decode_apt_satdump(wav_path, sat_name, aos_dt_msk):
 # LOS (Loss of Signal) — момент потери сигнала.
 # ------------------------------------------------------------
 
+def delta_str(target_dt, now_dt):
+    delta = target_dt - now_dt
+    total_seconds = int(delta.total_seconds())
+
+    if total_seconds < 0:
+        return "(уже прошло)"
+
+    h = total_seconds // 3600
+    m = (total_seconds % 3600) // 60
+    s = total_seconds % 60
+
+    return f"({h:02d}:{m:02d}:{s:02d})"
+
 
 # -----------------------------
 # Основной запуск
@@ -177,11 +190,11 @@ if __name__ == "__main__":
     # Вывод информации о пролёте
     print("Следующий пролёт NOAA‑18:")
     if aos_utc is not None:
-        print("AOS:", fmt(aos_utc))
+        print("AOS:", fmt(aos_utc), delta_str(aos_utc, now_utc))
     if tca_utc is not None:
-        print("TCA:", fmt(tca_utc))
+        print("TCA:", fmt(tca_utc), delta_str(tca_utc, now_utc))
     if los_utc is not None:
-        print("LOS:", fmt(los_utc))
+        print("LOS:", fmt(los_utc), delta_str(los_utc, now_utc))
 
     if inside_pass:
         print("Мы внутри окна пролёта — начинаем запись и декодирование.")
@@ -199,3 +212,4 @@ if __name__ == "__main__":
         print(f"Готово! Картинка сохранена: {img_path}")
     else:
         print("Сейчас не время пролёта.")
+
