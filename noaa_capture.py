@@ -1,9 +1,15 @@
 from datetime import datetime, timedelta, timezone
 from skyfield.api import load, wgs84
 from datetime import timezone, timedelta
+import subprocess
+import os
 
+RECORD_DIR = "records"
+os.makedirs(RECORD_DIR, exist_ok=True)
 
-
+CENTER_FREQ = 137.9125e6  # NOAA-18
+SAMPLE_RATE = 60000
+GAIN = 40
 MSK = timezone(timedelta(hours=3))
 # Координаты твоей точки (пример: Ярославская область)
 # 57.582914, 39.907135 Мой текущий адрес
@@ -56,6 +62,46 @@ def next_pass(ts, sat, minutes_ahead=180):
             current = {}
 
     return passes[0] if passes else None
+
+
+
+def record_pass(aos_dt, los_dt):
+    duration = int((los_dt - aos_dt).total_seconds()) + 20  # небольшой запас
+
+    wav_name = f"noaa18_{aos_dt.strftime('%Y%m%d_%H%M%S')}.wav"
+    wav_path = os.path.join(RECORD_DIR, wav_name)
+
+    cmd_rtl = [
+        "rtl_fm",
+        "-f", str(CENTER_FREQ),
+        "-s", str(SAMPLE_RATE),
+        "-g", str(GAIN),
+        "-E", "deemp",
+        "-F", "9",
+        "-A", "fast",
+        "-"
+    ]
+
+    cmd_sox = [
+        "sox",
+        "-t", "raw",
+        "-r", str(SAMPLE_RATE),
+        "-e", "signed",
+        "-b", "16",
+        "-c", "1",
+        "-",
+        wav_path
+    ]
+
+    print(f"Записываю сигнал {duration} секунд → {wav_path}")
+
+    p1 = subprocess.Popen(cmd_rtl, stdout=subprocess.PIPE)
+    p2 = subprocess.Popen(cmd_sox, stdin=p1.stdout)
+    p1.stdout.close()
+    p2.wait(timeout=duration + 60)
+
+    return wav_path
+
 
 # ------------------------------------------------------------
 # AOS / TCA / LOS — ключевые точки спутникового пролёта
