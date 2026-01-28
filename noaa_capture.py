@@ -155,28 +155,32 @@ if __name__ == "__main__":
     los_utc = p.get('los')
 
     # Преобразуем только существующие
-    if aos_utc:
+    if aos_utc is not None:
         aos_utc = aos_utc.utc_datetime().replace(tzinfo=timezone.utc)
-    if tca_utc:
+
+    if tca_utc is not None:
         tca_utc = tca_utc.utc_datetime().replace(tzinfo=timezone.utc)
-    if los_utc:
+
+    if los_utc is not None:
         los_utc = los_utc.utc_datetime().replace(tzinfo=timezone.utc)
+
 
     # Определяем, внутри ли мы пролёта
     inside_pass = False
 
-    if aos_utc and los_utc:
+    if aos_utc is not None and los_utc is not None:
         inside_pass = aos_utc <= now_utc <= los_utc
-    elif (not aos_utc) and tca_utc and los_utc:
+
+    elif aos_utc is None and tca_utc is not None and los_utc is not None:
         inside_pass = now_utc <= los_utc
 
     # Вывод информации о пролёте
     print("Следующий пролёт NOAA‑18:")
-    if aos_utc:
+    if aos_utc is not None:
         print("AOS:", fmt(aos_utc))
-    if tca_utc:
+    if tca_utc is not None:
         print("TCA:", fmt(tca_utc))
-    if los_utc:
+    if los_utc is not None:
         print("LOS:", fmt(los_utc))
 
     if inside_pass:
