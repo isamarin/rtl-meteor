@@ -20,6 +20,9 @@ LAT = 57.582914
 LON = 39.907135
 ALT = 0.1  # км
 
+def fmt_msk(dt):
+    return dt.astimezone(MSK).strftime("%Y-%m-%d %H:%M:%S %Z")
+
 
 # -----------------------------
 # Поиск бинарников
@@ -128,7 +131,13 @@ def record_pass(aos_dt, los_dt):
 
     print(f"▶ Начинаю запись {duration} сек → {wav_path}")
 
-    p1 = subprocess.Popen(cmd_rtl, stdout=subprocess.PIPE)
+    try:
+        p1 = subprocess.Popen(cmd_rtl, stdout=subprocess.PIPE)
+    except Exception as e:
+        print("❌ rtl_fm не запустился:", e)
+        return None
+
+
     p2 = subprocess.Popen(cmd_sox, stdin=p1.stdout)
 
     p1.stdout.close()
@@ -188,14 +197,49 @@ def run_daemon():
                 time.sleep(600)
                 continue
 
-            aos = p["aos"].utc_datetime().replace(tzinfo=timezone.utc)
-            los = p["los"].utc_datetime().replace(tzinfo=timezone.utc)
+            # Извлекаем события, но они могут отсутствовать
+            aos = p.get("aos")
+            tca = p.get("tca")
+            los = p.get("los")
+
+            # LOS обязателен — без него нет смысла писать
+            if los is None:
+                print("❌ Пролёт без LOS — пропускаю")
+                time.sleep(60)
+                continue
+
+            los = los.utc_datetime().replace(tzinfo=timezone.utc)
+
+            now = datetime.now(timezone.utc)
+
+            # Если AOS есть — отлично
+            if aos is not None:
+                aos = aos.utc_datetime().replace(tzinfo=timezone.utc)
+
+            # Если AOS нет, но есть TCA → стартуем сейчас
+            elif tca is not None:
+                print("⚠ Нет AOS, но есть TCA — начинаю запись немедленно")
+                aos = now
+
+            # Если есть только LOS → тоже стартуем сейчас
+            else:
+                print("⚠ Нет AOS/TCA — стартую сейчас, пока не поздно")
+                aos = now
 
             now = datetime.now(timezone.utc)
 
             if now < aos:
                 wait = (aos - now).total_seconds()
-                print(f"⏳ Жду до AOS ({wait:.0f} сек)")
+
+                aos_msk = aos.astimezone(MSK)
+                now_msk = now.astimezone(MSK)
+                delta = aos - now
+                total = int(delta.total_seconds())
+                h = total // 3600
+                m = (total % 3600) // 60
+                s = total % 60
+                print(f"⏳ Жду до AOS: {fmt_msk(aos)} (через {h:02d}:{m:02d}:{s:02d})")
+
                 time.sleep(wait)
 
             print("📡 Начинаю приём")
