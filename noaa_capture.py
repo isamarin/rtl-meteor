@@ -66,6 +66,52 @@ def next_pass(ts, sat, minutes_ahead=180):
     return passes[0] if passes else None
 
 
+def find_rtl_fm():
+    # Возможные пути для macOS (Intel и ARM)
+    candidates = [
+        "/usr/local/bin/rtl_fm",
+        "/opt/homebrew/bin/rtl_fm",
+        "/usr/bin/rtl_fm",
+        "/usr/local/sbin/rtl_fm",
+        "/opt/homebrew/sbin/rtl_fm",
+    ]
+
+    # Проверяем стандартный PATH
+    for path_dir in os.environ.get("PATH", "").split(":"):
+        candidates.append(os.path.join(path_dir, "rtl_fm"))
+
+    # Проверяем каждый путь
+    for path in candidates:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+
+    # Если не нашли — выводим понятную ошибку
+    raise FileNotFoundError(
+        "rtl_fm не найден. Убедись, что пакет rtl-sdr установлен через Homebrew.\n"
+        "Попробуй: brew reinstall rtl-sdr"
+    )
+
+def find_sox():
+    candidates = [
+        "/usr/local/bin/sox",
+        "/opt/homebrew/bin/sox",
+        "/usr/bin/sox",
+        "/usr/local/sbin/sox",
+        "/opt/homebrew/sbin/sox",
+    ]
+
+    for path_dir in os.environ.get("PATH", "").split(":"):
+        candidates.append(os.path.join(path_dir, "sox"))
+
+    for path in candidates:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+
+    raise FileNotFoundError(
+        "sox не найден. Установи через Homebrew: brew install sox"
+    )
+
+
 # -----------------------------
 # Запись сигнала RTL-SDR
 # -----------------------------
@@ -75,8 +121,10 @@ def record_pass(aos_dt, los_dt):
     wav_name = f"noaa18_{aos_dt.strftime('%Y%m%d_%H%M%S')}.wav"
     wav_path = os.path.join(RECORD_DIR, wav_name)
 
+    rtl_fm_path = find_rtl_fm()
+
     cmd_rtl = [
-        "rtl_fm",
+        rtl_fm_path,
         "-f", str(CENTER_FREQ),
         "-s", str(SAMPLE_RATE),
         "-g", str(GAIN),
@@ -86,8 +134,10 @@ def record_pass(aos_dt, los_dt):
         "-"
     ]
 
+    sox_path = find_sox()
+
     cmd_sox = [
-        "sox",
+        sox_path,
         "-t", "raw",
         "-r", str(SAMPLE_RATE),
         "-e", "signed",
