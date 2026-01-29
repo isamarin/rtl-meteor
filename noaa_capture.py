@@ -122,6 +122,7 @@ def record_pass(aos_dt, los_dt):
     wav_path = os.path.join(RECORD_DIR, wav_name)
 
     rtl_fm_path = find_rtl_fm()
+    sox_path = find_sox()
 
     cmd_rtl = [
         rtl_fm_path,
@@ -133,8 +134,6 @@ def record_pass(aos_dt, los_dt):
         "-A", "fast",
         "-"
     ]
-
-    sox_path = find_sox()
 
     cmd_sox = [
         sox_path,
@@ -149,10 +148,28 @@ def record_pass(aos_dt, los_dt):
 
     print(f"Записываю сигнал {duration} секунд → {wav_path}")
 
+    # Запускаем rtl_fm → stdout → sox
     p1 = subprocess.Popen(cmd_rtl, stdout=subprocess.PIPE)
     p2 = subprocess.Popen(cmd_sox, stdin=p1.stdout)
+
+    # rtl_fm больше не должен писать в stdout напрямую
     p1.stdout.close()
-    p2.wait(timeout=duration + 60)
+
+    # Ждём rtl_fm (он завершится ровно в LOS)
+    p1.wait()
+
+    # Закрываем stdin sox, чтобы он понял, что поток закончился
+    try:
+        p2.stdin.close()
+    except Exception:
+        pass
+
+    # Ждём sox, но недолго
+    try:
+        p2.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        print("⚠️ sox не завершился вовремя — принудительно завершаю.")
+        p2.kill()
 
     return wav_path
 
