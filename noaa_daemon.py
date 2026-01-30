@@ -167,6 +167,7 @@ def decode_apt(raw_path, aos_dt):
         "-o", img_path,
         "--samplerate", "1920000",
         "--frequency", str(int(CENTER_FREQ)),
+        "--opencl-device", "1",
         "--no-config"
     ]
 
