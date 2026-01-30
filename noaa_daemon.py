@@ -4,6 +4,23 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from skyfield.api import load, wgs84
 
+import fcntl, sys, os
+
+LOCK_FILE = "/tmp/rtl_meteor.lock"
+
+fp = open(LOCK_FILE, "w")
+
+try:
+    fcntl.flock(fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    print("⚠ Скрипт уже запущен, выходим.")
+    sys.exit(0)
+
+# Записываем PID внутрь файла (не обязательно, но удобно)
+fp.write(str(os.getpid()))
+fp.flush()
+
+
 # -----------------------------
 # Настройки
 # -----------------------------
@@ -104,79 +121,61 @@ def next_pass(ts, sat, minutes_ahead=180):
 def record_pass(aos_dt, los_dt):
     duration = int((los_dt - aos_dt).total_seconds()) + 20
 
-    wav_name = f"noaa18_{aos_dt.strftime('%Y%m%d_%H%M%S')}.wav"
-    wav_path = os.path.join(RECORD_DIR, wav_name)
+    RAW_SAMPLE_RATE = 1920000
+    samples = RAW_SAMPLE_RATE * duration
+
+    raw_name = f"noaa18_{aos_dt.strftime('%Y%m%d_%H%M%S')}.raw"
+    raw_path = os.path.join(RECORD_DIR, raw_name)
+
+    print(f"▶ Начинаю запись {duration} сек → RAW {raw_path}")
 
     cmd_rtl = [
-        RTL_FM,
-        "-f", str(CENTER_FREQ),
-        "-s", str(SAMPLE_RATE),
+        "rtl_sdr",
+        "-f", str(int(CENTER_FREQ)),
+        "-s", str(RAW_SAMPLE_RATE),
         "-g", str(GAIN),
-        "-E", "deemp",
-        "-F", "9",
-        "-A", "fast",
-        "-"
+        "-n", str(samples),
+        raw_path
     ]
-
-    cmd_sox = [
-        SOX,
-        "-t", "raw",
-        "-r", str(SAMPLE_RATE),
-        "-e", "signed",
-        "-b", "16",
-        "-c", "1",
-        "-",
-        wav_path
-    ]
-
-    print(f"▶ Начинаю запись {duration} сек → {wav_path}")
 
     try:
-        p1 = subprocess.Popen(cmd_rtl, stdout=subprocess.PIPE)
-    except Exception as e:
-        print("❌ rtl_fm не запустился:", e)
+        p = subprocess.Popen(cmd_rtl)
+        p.wait(timeout=duration + 30)
+    except subprocess.TimeoutExpired:
+        print("⚠ rtl_sdr завис — убиваю")
+        p.kill()
+
+    if not os.path.exists(raw_path) or os.path.getsize(raw_path) < 1_000_000:
+        print("❌ RAW файл пустой — запись не удалась")
         return None
 
+    return raw_path
 
-    p2 = subprocess.Popen(cmd_sox, stdin=p1.stdout)
-
-    p1.stdout.close()
-
-    # Ждём rtl_fm (он завершится ровно в LOS)
-    p1.wait()
-
-    # Закрываем stdin sox
-    try:
-        p2.stdin.close()
-    except:
-        pass
-
-    # Ждём sox
-    try:
-        p2.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        print("⚠ sox завис — убиваю")
-        p2.kill()
-
-    return wav_path
 
 
 # -----------------------------
 # Декодирование через SatDump
 # -----------------------------
-def decode_apt(wav_path, aos_dt):
+def decode_apt(raw_path, aos_dt):
     img_name = f"NOAA18_{aos_dt.strftime('%Y%m%d_%H%M%S')}.png"
     img_path = os.path.join(RECORD_DIR, img_name)
 
     cmd = [
         "satdump",
-        "apt",
-        "-i", wav_path,
-        "-o", img_path
+        "apt_raw",
+        "-i", raw_path,
+        "-o", img_path,
+        "--samplerate", "1920000",
+        "--frequency", str(int(CENTER_FREQ)),
+        "--no-config"
     ]
 
-    print(f"🖼 Декодирую → {img_path}")
+    print(f"🖼 Декодирую RAW → {img_path}")
     subprocess.run(cmd, check=False)
+
+    if not os.path.exists(img_path):
+        print("❌ SatDump не создал PNG — декодирование не удалось")
+        return None
 
     return img_path
 
@@ -243,10 +242,14 @@ def run_daemon():
                 time.sleep(wait)
 
             print("📡 Начинаю приём")
-            wav = record_pass(aos, los)
+
+            raw = record_pass(aos, los)
+            if raw is None:
+                print("⚠ Пропускаю декодирование — нет RAW")
+                continue
 
             print("🧩 Декодирование")
-            decode_apt(wav, aos)
+            decode_apt(raw, aos)
 
             print("✔ Готово. Жду следующий пролёт.\n")
 
