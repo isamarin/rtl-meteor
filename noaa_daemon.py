@@ -162,7 +162,7 @@ def decode_apt(raw_path, aos_dt):
 
     cmd = [
         "satdump",
-        "apt",
+        "-m", "apt",
         "-i", raw_path,
         "-o", img_path,
         "--samplerate", "1920000",
@@ -178,6 +178,7 @@ def decode_apt(raw_path, aos_dt):
         return None
 
     return img_path
+
 
 
 
