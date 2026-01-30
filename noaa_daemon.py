@@ -255,12 +255,22 @@ def run_daemon():
             decode_apt(raw, aos)
 
             print("✔ Готово. Жду следующий пролёт.\n")
-
+        except KeyboardInterrupt:
+            print("\n🛑 Остановка демона по запросу пользователя. Завершаю работу...")
+            fp.close()
+            sys.exit(130)
         except Exception as e:
             print("❌ Ошибка:", e)
             print("Сплю 60 секунд и продолжаю…")
             time.sleep(60)
+        finally:
+            try:
+                fp.close()
+            except:
+                pass
 
 
 if __name__ == "__main__":
     run_daemon()
+
+
