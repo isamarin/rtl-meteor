@@ -162,12 +162,12 @@ def decode_apt(raw_path, aos_dt):
 
     cmd = [
         "satdump",
-        "-m", "apt",
+        "apt",                     # <-- ВАЖНО: модуль указывается здесь
         "-i", raw_path,
         "-o", img_path,
         "--samplerate", "1920000",
         "--frequency", str(int(CENTER_FREQ)),
-        "--opencl-device", "1",
+        "--opencl-device", "1",   # GPU #1
         "--no-config"
     ]
 
@@ -179,6 +179,7 @@ def decode_apt(raw_path, aos_dt):
         return None
 
     return img_path
+
 
 
 
