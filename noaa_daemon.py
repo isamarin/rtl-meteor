@@ -4,7 +4,7 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from skyfield.api import load, wgs84
 
-import fcntl, sys, os
+import fcntl, sys
 
 LOCK_FILE = "/tmp/rtl_meteor.lock"
 
@@ -20,7 +20,6 @@ except BlockingIOError:
 fp.write(str(os.getpid()))
 fp.flush()
 
-
 # -----------------------------
 # Настройки
 # -----------------------------
@@ -28,7 +27,6 @@ RECORD_DIR = "records"
 os.makedirs(RECORD_DIR, exist_ok=True)
 
 CENTER_FREQ = 137.9125e6
-SAMPLE_RATE = 60000
 GAIN = 40
 
 MSK = timezone(timedelta(hours=3))
@@ -37,43 +35,9 @@ LAT = 57.582914
 LON = 39.907135
 ALT = 0.1  # км
 
+
 def fmt_msk(dt):
     return dt.astimezone(MSK).strftime("%Y-%m-%d %H:%M:%S %Z")
-
-
-# -----------------------------
-# Поиск бинарников
-# -----------------------------
-def find_rtl_fm():
-    candidates = [
-        "/usr/local/bin/rtl_fm",
-        "/opt/homebrew/bin/rtl_fm",
-        "/usr/bin/rtl_fm",
-    ]
-    for d in os.environ.get("PATH", "").split(":"):
-        candidates.append(os.path.join(d, "rtl_fm"))
-    for p in candidates:
-        if os.path.isfile(p) and os.access(p, os.X_OK):
-            return p
-    raise FileNotFoundError("rtl_fm не найден")
-
-
-def find_sox():
-    candidates = [
-        "/usr/local/bin/sox",
-        "/opt/homebrew/bin/sox",
-        "/usr/bin/sox",
-    ]
-    for d in os.environ.get("PATH", "").split(":"):
-        candidates.append(os.path.join(d, "sox"))
-    for p in candidates:
-        if os.path.isfile(p) and os.access(p, os.X_OK):
-            return p
-    raise FileNotFoundError("sox не найден")
-
-
-RTL_FM = find_rtl_fm()
-SOX = find_sox()
 
 
 # -----------------------------
@@ -124,8 +88,17 @@ def record_pass(aos_dt, los_dt):
     RAW_SAMPLE_RATE = 1920000
     samples = RAW_SAMPLE_RATE * duration
 
-    raw_name = f"noaa18_{aos_dt.strftime('%Y%m%d_%H%M%S')}.raw"
+    # Делаем имя уникальным за счёт микросекунд
+    raw_name = f"noaa18_{aos_dt.strftime('%Y%m%d_%H%M%S_%f')}.raw"
     raw_path = os.path.join(RECORD_DIR, raw_name)
+
+    # Если по какой-то причине файл уже есть — удалим
+    if os.path.exists(raw_path):
+        try:
+            os.remove(raw_path)
+        except OSError as e:
+            print(f"⚠ Не удалось удалить существующий RAW {raw_path}: {e}")
+            return None
 
     print(f"▶ Начинаю запись {duration} сек → RAW {raw_path}")
 
@@ -145,12 +118,16 @@ def record_pass(aos_dt, los_dt):
         print("⚠ rtl_sdr завис — убиваю")
         p.kill()
 
-    if not os.path.exists(raw_path) or os.path.getsize(raw_path) < 1_000_000:
-        print("❌ RAW файл пустой — запись не удалась")
+    if not os.path.exists(raw_path):
+        print(f"❌ RAW файл не создан: {raw_path}")
+        return None
+
+    size = os.path.getsize(raw_path)
+    if size < 1_000_000:
+        print(f"❌ RAW файл слишком маленький ({size} байт) — запись не удалась")
         return None
 
     return raw_path
-
 
 
 # -----------------------------
@@ -162,13 +139,13 @@ def decode_apt(raw_path, aos_dt):
 
     cmd = [
         "satdump",
-        "apt",                     # <-- ВАЖНО: модуль указывается здесь
+        "apt",
         "-i", raw_path,
         "-o", img_path,
         "--samplerate", "1920000",
         "--frequency", str(int(CENTER_FREQ)),
-        "--opencl-device", "1",   # GPU #1
-        "--no-config"
+        "--opencl-device", "1",
+        "--no-config",
     ]
 
     print(f"🖼 Декодирую RAW → {img_path}")
@@ -178,10 +155,8 @@ def decode_apt(raw_path, aos_dt):
         print("❌ SatDump не создал PNG — декодирование не удалось")
         return None
 
+    print(f"🖼 PNG готов: {img_path}")
     return img_path
-
-
-
 
 
 # -----------------------------
@@ -190,8 +165,8 @@ def decode_apt(raw_path, aos_dt):
 def run_daemon():
     print("🚀 NOAA‑18 демон запущен")
 
-    while True:
-        try:
+    try:
+        while True:
             ts, sat = load_noaa_sat()
             p = next_pass(ts, sat)
 
@@ -200,31 +175,23 @@ def run_daemon():
                 time.sleep(600)
                 continue
 
-            # Извлекаем события, но они могут отсутствовать
             aos = p.get("aos")
             tca = p.get("tca")
             los = p.get("los")
 
-            # LOS обязателен — без него нет смысла писать
             if los is None:
                 print("❌ Пролёт без LOS — пропускаю")
                 time.sleep(60)
                 continue
 
             los = los.utc_datetime().replace(tzinfo=timezone.utc)
-
             now = datetime.now(timezone.utc)
 
-            # Если AOS есть — отлично
             if aos is not None:
                 aos = aos.utc_datetime().replace(tzinfo=timezone.utc)
-
-            # Если AOS нет, но есть TCA → стартуем сейчас
             elif tca is not None:
                 print("⚠ Нет AOS, но есть TCA — начинаю запись немедленно")
                 aos = now
-
-            # Если есть только LOS → тоже стартуем сейчас
             else:
                 print("⚠ Нет AOS/TCA — стартую сейчас, пока не поздно")
                 aos = now
@@ -232,18 +199,13 @@ def run_daemon():
             now = datetime.now(timezone.utc)
 
             if now < aos:
-                wait = (aos - now).total_seconds()
-
-                aos_msk = aos.astimezone(MSK)
-                now_msk = now.astimezone(MSK)
                 delta = aos - now
                 total = int(delta.total_seconds())
                 h = total // 3600
                 m = (total % 3600) // 60
                 s = total % 60
                 print(f"⏳ Жду до AOS: {fmt_msk(aos)} (через {h:02d}:{m:02d}:{s:02d})")
-
-                time.sleep(wait)
+                time.sleep(delta.total_seconds())
 
             print("📡 Начинаю приём")
 
@@ -256,22 +218,16 @@ def run_daemon():
             decode_apt(raw, aos)
 
             print("✔ Готово. Жду следующий пролёт.\n")
-        except KeyboardInterrupt:
-            print("\n🛑 Остановка демона по запросу пользователя. Завершаю работу...")
-            fp.close()
-            sys.exit(130)
-        except Exception as e:
-            print("❌ Ошибка:", e)
-            print("Сплю 60 секунд и продолжаю…")
-            time.sleep(60)
-        finally:
-            try:
-                fp.close()
-            except:
-                pass
+
+    except KeyboardInterrupt:
+        print("\n🛑 Остановка демона по запросу пользователя. Завершаю работу...")
+        fp.close()
+        sys.exit(130)
+    except Exception as e:
+        print("❌ Необработанная ошибка в демоне:", e)
+        fp.close()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
     run_daemon()
-
-
