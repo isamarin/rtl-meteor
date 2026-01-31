@@ -142,9 +142,10 @@ def decode_apt(raw_path, aos_dt):
 
     cmd = [
         "satdump",
-        "noaa_apt",
-        "-i", raw_path,
-        "-o", out_dir,
+        "noaa_apt",                 # pipeline
+        "baseband",                 # input_level
+        raw_path,                   # input_file
+        out_dir,                    # output directory
         "--samplerate", "1920000",
         "--frequency", str(int(CENTER_FREQ)),
         "--opencl-device", "1",
@@ -156,14 +157,6 @@ def decode_apt(raw_path, aos_dt):
 
     # Ищем PNG
     pngs = [f for f in os.listdir(out_dir) if f.lower().endswith(".png")]
-
-    # Удаляем RAW в любом случае
-    try:
-        os.remove(raw_path)
-        print(f"🗑 Удалил RAW: {raw_path}")
-    except Exception as e:
-        print(f"⚠ Не удалось удалить RAW {raw_path}: {e}")
-
     if not pngs:
         print("❌ SatDump не создал PNG — декодирование не удалось")
         return None
