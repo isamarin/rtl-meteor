@@ -88,17 +88,14 @@ def record_pass(aos_dt, los_dt):
     RAW_SAMPLE_RATE = 1920000
     samples = RAW_SAMPLE_RATE * duration
 
-    # Делаем имя уникальным за счёт микросекунд
     raw_name = f"noaa18_{aos_dt.strftime('%Y%m%d_%H%M%S_%f')}.raw"
     raw_path = os.path.join(RECORD_DIR, raw_name)
 
-    # Если по какой-то причине файл уже есть — удалим
     if os.path.exists(raw_path):
         try:
             os.remove(raw_path)
-        except OSError as e:
-            print(f"⚠ Не удалось удалить существующий RAW {raw_path}: {e}")
-            return None
+        except:
+            pass
 
     print(f"▶ Начинаю запись {duration} сек → RAW {raw_path}")
 
@@ -119,44 +116,62 @@ def record_pass(aos_dt, los_dt):
         p.kill()
 
     if not os.path.exists(raw_path):
-        print(f"❌ RAW файл не создан: {raw_path}")
+        print("❌ RAW файл не создан")
         return None
 
     size = os.path.getsize(raw_path)
     if size < 1_000_000:
-        print(f"❌ RAW файл слишком маленький ({size} байт) — запись не удалась")
+        print(f"❌ RAW слишком маленький ({size} байт) — запись не удалась")
+        try:
+            os.remove(raw_path)
+            print(f"🗑 Удалил пустой RAW: {raw_path}")
+        except:
+            pass
         return None
 
     return raw_path
+
 
 
 # -----------------------------
 # Декодирование через SatDump
 # -----------------------------
 def decode_apt(raw_path, aos_dt):
-    img_name = f"NOAA18_{aos_dt.strftime('%Y%m%d_%H%M%S')}.png"
-    img_path = os.path.join(RECORD_DIR, img_name)
+    out_dir = os.path.join(RECORD_DIR, aos_dt.strftime("%Y%m%d_%H%M%S"))
+    os.makedirs(out_dir, exist_ok=True)
 
     cmd = [
         "satdump",
-        "apt",
+        "noaa_apt",
         "-i", raw_path,
-        "-o", img_path,
+        "-o", out_dir,
         "--samplerate", "1920000",
         "--frequency", str(int(CENTER_FREQ)),
         "--opencl-device", "1",
-        "--no-config",
+        "--no-config"
     ]
 
-    print(f"🖼 Декодирую RAW → {img_path}")
+    print(f"🖼 Декодирую RAW → {out_dir}")
     subprocess.run(cmd, check=False)
 
-    if not os.path.exists(img_path):
+    # Ищем PNG
+    pngs = [f for f in os.listdir(out_dir) if f.lower().endswith(".png")]
+
+    # Удаляем RAW в любом случае
+    try:
+        os.remove(raw_path)
+        print(f"🗑 Удалил RAW: {raw_path}")
+    except Exception as e:
+        print(f"⚠ Не удалось удалить RAW {raw_path}: {e}")
+
+    if not pngs:
         print("❌ SatDump не создал PNG — декодирование не удалось")
         return None
 
+    img_path = os.path.join(out_dir, pngs[0])
     print(f"🖼 PNG готов: {img_path}")
     return img_path
+
 
 
 # -----------------------------
