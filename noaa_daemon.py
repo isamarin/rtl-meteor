@@ -140,15 +140,23 @@ def decode_apt(raw_path, aos_dt):
     out_dir = os.path.join(RECORD_DIR, aos_dt.strftime("%Y%m%d_%H%M%S"))
     os.makedirs(out_dir, exist_ok=True)
 
+    # Папка, которую монтируем в контейнер
+    mount_dir = os.path.abspath(RECORD_DIR)
+
+    # Имя файла внутри контейнера
+    raw_name = os.path.basename(raw_path)
+
     cmd = [
+        "docker", "run", "--rm",
+        "-v", f"{mount_dir}:/data",
+        "knegge/satdump",
         "satdump",
-        "noaa_apt",                 # pipeline
-        "baseband",                 # input_level
-        raw_path,                   # input_file
-        out_dir,                    # output directory
+        "noaa_apt",          # pipeline
+        "baseband",          # input_level
+        f"/data/{raw_name}", # input file
+        "/data/" + aos_dt.strftime("%Y%m%d_%H%M%S"),  # output dir
         "--samplerate", "1920000",
         "--frequency", str(int(CENTER_FREQ)),
-        "--opencl-device", "1",
         "--no-config"
     ]
 
