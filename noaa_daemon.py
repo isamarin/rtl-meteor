@@ -137,27 +137,25 @@ def record_pass(aos_dt, los_dt):
 # Декодирование через SatDump
 # -----------------------------
 def decode_apt(raw_path, aos_dt):
+    # Папка для результата
     out_dir = os.path.join(RECORD_DIR, aos_dt.strftime("%Y%m%d_%H%M%S"))
     os.makedirs(out_dir, exist_ok=True)
 
-    # Папка, которую монтируем в контейнер
+    # Абсолютный путь к RECORD_DIR (монтируется как /data)
     mount_dir = os.path.abspath(RECORD_DIR)
 
-    # Имя файла внутри контейнера
+    # Имя RAW внутри контейнера
     raw_name = os.path.basename(raw_path)
 
+    # Имя выходной папки внутри контейнера
+    out_name = aos_dt.strftime("%Y%m%d_%H%M%S")
+
     cmd = [
-        "docker", "run", "--rm",
-        "-v", f"{mount_dir}:/data",
-        "knegge/satdump",
+        "docker", "compose", "run", "--rm",
         "satdump",
-        "noaa_apt",          # pipeline
-        "baseband",          # input_level
-        f"/data/{raw_name}", # input file
-        "/data/" + aos_dt.strftime("%Y%m%d_%H%M%S"),  # output dir
-        "--samplerate", "1920000",
-        "--frequency", str(int(CENTER_FREQ)),
-        "--no-config"
+        "noaa_apt",
+        "-i", f"/data/{raw_name}",
+        "-o", f"/data/{out_name}"
     ]
 
     print(f"🖼 Декодирую RAW → {out_dir}")
@@ -172,8 +170,6 @@ def decode_apt(raw_path, aos_dt):
     img_path = os.path.join(out_dir, pngs[0])
     print(f"🖼 PNG готов: {img_path}")
     return img_path
-
-
 
 # -----------------------------
 # Главный цикл демона
