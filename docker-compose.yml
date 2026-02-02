@@ -1,14 +1,10 @@
-version: "3.9"
-
 services:
   satdump:
+    build: .
     image: satdump-custom
-    container_name: satdump
-    build:
-      context: .
-      dockerfile: Dockerfile
+    container_name: satdump_cli
     volumes:
       - ./records:/data
     working_dir: /data
-    entrypoint: ["satdump"]
-    restart: "no"
+    stdin_open: true
+    tty: true

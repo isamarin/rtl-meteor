@@ -68,5 +68,3 @@ RUN groupadd -g $HOST_GID satdump && \
 
 USER satdump
 WORKDIR /home/satdump
-
-ENTRYPOINT ["satdump"]

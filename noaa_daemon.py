@@ -154,8 +154,11 @@ def decode_apt(raw_path, aos_dt):
         "docker", "compose", "run", "--rm",
         "satdump",
         "noaa_apt",
-        "-i", f"/data/{raw_name}",
-        "-o", f"/data/{out_name}"
+        "baseband",
+        f"/data/{raw_name}",
+        f"/data/{out_name}",
+        "--samplerate", "1920000",
+        "--baseband_format", "u8"
     ]
 
     print(f"🖼 Декодирую RAW → {out_dir}")
