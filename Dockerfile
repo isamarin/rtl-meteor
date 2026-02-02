@@ -1,7 +1,8 @@
-FROM ubuntu:22.04
+FROM debian:12
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Базовые зависимости
 RUN apt-get update && apt-get install -y \
     git cmake build-essential pkg-config \
     libfftw3-dev libpng-dev libzstd-dev \
@@ -14,17 +15,21 @@ RUN apt-get update && apt-get install -y \
     libnng-dev \
     libjemalloc-dev \
     libtiff-dev \
+    libopencv-dev \
+    libglfw3-dev \
+    libglew-dev \
+    libglm-dev \
+    libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Rust
+# Rust (для зависимостей SatDump)
 RUN apt-get update && apt-get install -y curl && \
     curl https://sh.rustup.rs -sSf | bash -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# VOLK
+# VOLK (рекомендуется SatDump)
 RUN git clone --recursive https://github.com/gnuradio/volk.git /opt/volk && \
-    cd /opt/volk && git submodule update --init --recursive && \
-    mkdir build && cd build && \
+    cd /opt/volk && mkdir build && cd build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release && \
     make -j$(nproc) && make install && ldconfig
 
@@ -32,18 +37,9 @@ RUN git clone --recursive https://github.com/gnuradio/volk.git /opt/volk && \
 RUN git clone --recursive https://github.com/SatDump/SatDump.git /opt/satdump
 WORKDIR /opt/satdump
 
-# Disable GUI and interface completely
-RUN sed -i 's/add_subdirectory(src-ui)/#add_subdirectory(src-ui)/' CMakeLists.txt
-RUN sed -i 's/add_subdirectory(src-interface)/#add_subdirectory(src-interface)/' CMakeLists.txt
-RUN sed -i 's/add_subdirectory(src-gui)/#add_subdirectory(src-gui)/' CMakeLists.txt || true
-
 RUN mkdir build && cd build && \
-    cmake .. \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DUSE_OPENCV=OFF && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release && \
     make -j$(nproc) && \
     make install
-
-
 
 ENTRYPOINT ["satdump"]
