@@ -44,7 +44,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     libfftw3-3 libpng16-16 libtiff5 \
     libjemalloc2 libcurl4 \
-    libvolk2 libnng \
+    libvolk2-dev libnng-dev \
     libglfw3 zenity \
     portaudio19-dev libzstd1 libhdf5-103 \
     librtlsdr0 libhackrf0 libairspy0 libairspyhf1 \
