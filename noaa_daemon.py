@@ -153,6 +153,7 @@ def decode_apt(raw_path, aos_dt):
     cmd = [
         "docker", "compose", "run", "--rm",
         "satdump",
+        "satdump",
         "noaa_apt",
         "baseband",
         f"/data/{raw_name}",
