@@ -3,7 +3,7 @@ import os
 import subprocess
 from datetime import datetime, timedelta, timezone
 from skyfield.api import load, wgs84
-
+from rich.progress import Progress
 import fcntl, sys
 
 LOCK_FILE = "/tmp/rtl_meteor.lock"
@@ -38,6 +38,9 @@ ALT = 0.1  # км
 # Сектор окна: север (0°) → северо-восток (70°)
 WINDOW_MIN_AZ = 0
 WINDOW_MAX_AZ = 70
+
+
+
 
 def analyze_pass(ts, sat, p):
     observer = wgs84.latlon(LAT, LON, ALT)
@@ -276,13 +279,19 @@ def run_daemon():
             now = datetime.now(timezone.utc)
 
             if now < aos:
-                delta = aos - now
-                total = int(delta.total_seconds())
-                h = total // 3600
-                m = (total % 3600) // 60
-                s = total % 60
-                print(f"⏳ Жду до AOS: {fmt_msk(aos)} (через {h:02d}:{m:02d}:{s:02d})")
-                time.sleep(delta.total_seconds())
+                wait_seconds = int((aos - now).total_seconds())
+
+
+
+                with Progress() as progress:
+                    task = progress.add_task(
+                        f"⏳ Жду до AOS: {fmt_msk(aos)}",
+                        total=wait_seconds
+                    )
+
+                    for _ in range(wait_seconds):
+                        progress.update(task, advance=1)
+                        time.sleep(1)
 
             print("📡 Начинаю приём")
 
