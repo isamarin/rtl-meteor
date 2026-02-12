@@ -240,6 +240,12 @@ def run_daemon():
             tca = p.get("tca")
             los = p.get("los")
 
+            # Если нет AOS — пропускаем пролёт
+            if aos is None:
+                print("⚠ Пролёт без AOS — пропускаю")
+                time.sleep(60)
+                continue
+
             # 1) Проверяем, что есть LOS
             if los is None:
                 print("❌ Пролёт без LOS — пропускаю")
