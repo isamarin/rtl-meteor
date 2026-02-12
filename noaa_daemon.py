@@ -35,6 +35,48 @@ LAT = 57.582914
 LON = 39.907135
 ALT = 0.1  # км
 
+# Сектор окна: север (0°) → северо-восток (70°)
+WINDOW_MIN_AZ = 0
+WINDOW_MAX_AZ = 70
+
+def analyze_pass(ts, sat, p):
+    observer = wgs84.latlon(LAT, LON, ALT)
+
+    aos = p["aos"]
+    tca = p["tca"]
+    los = p["los"]
+
+    aos_alt, aos_az, _ = (sat - observer).at(aos).altaz()
+    tca_alt, tca_az, _ = (sat - observer).at(tca).altaz()
+    los_alt, los_az, _ = (sat - observer).at(los).altaz()
+
+    return {
+        "aos": aos.utc_datetime(),
+        "tca": tca.utc_datetime(),
+        "los": los.utc_datetime(),
+        "aos_az": aos_az.degrees,
+        "tca_az": tca_az.degrees,
+        "los_az": los_az.degrees,
+        "tca_alt": tca_alt.degrees
+    }
+
+def pass_visible(info):
+    # Высота слишком низкая
+    if info["tca_alt"] < 30:
+        return False, "низкая высота (<30°)"
+
+    # TCA в секторе окна
+    if WINDOW_MIN_AZ <= info["tca_az"] <= WINDOW_MAX_AZ:
+        return True, "TCA в секторе окна"
+
+    # AOS или LOS в секторе — слабый, но возможный
+    if WINDOW_MIN_AZ <= info["aos_az"] <= WINDOW_MAX_AZ:
+        return True, "видно начало пролёта"
+    if WINDOW_MIN_AZ <= info["los_az"] <= WINDOW_MAX_AZ:
+        return True, "виден конец пролёта"
+
+    return False, "пролёт вне сектора окна"
+
 
 def fmt_msk(dt):
     return dt.astimezone(MSK).strftime("%Y-%m-%d %H:%M:%S %Z")
@@ -195,10 +237,29 @@ def run_daemon():
             tca = p.get("tca")
             los = p.get("los")
 
+            # 1) Проверяем, что есть LOS
             if los is None:
                 print("❌ Пролёт без LOS — пропускаю")
                 time.sleep(60)
                 continue
+
+            # 2) Анализируем пролёт
+            info = analyze_pass(ts, sat, p)
+            visible, reason = pass_visible(info)
+
+            print(f"🛰 Пролёт NOAA-18:")
+            print(f" AOS азимут {info['aos_az']:.1f}°")
+            print(f" TCA азимут {info['tca_az']:.1f}° высота {info['tca_alt']:.1f}°")
+            print(f" LOS азимут {info['los_az']:.1f}°")
+            print(f" ➜ Оценка: {reason}")
+
+            # 3) Проверяем видимость
+            if not visible:
+                print("❌ Пролёт не виден из окна — пропускаю\n")
+                time.sleep(60)
+                continue
+
+            print("👍 Пролёт виден — готовлюсь к приёму\n")
 
             los = los.utc_datetime().replace(tzinfo=timezone.utc)
             now = datetime.now(timezone.utc)
