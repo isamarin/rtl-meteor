@@ -40,6 +40,12 @@ WINDOW_MIN_AZ = 0
 WINDOW_MAX_AZ = 70
 
 
+def log_status(msg):
+    now = datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{now}] {msg}"
+    sys.stdout.write("\r" + line)
+    sys.stdout.flush()
+
 
 
 def analyze_pass(ts, sat, p):
@@ -164,12 +170,12 @@ def record_pass(aos_dt, los_dt):
         p.kill()
 
     if not os.path.exists(raw_path):
-        print("❌ RAW файл не создан")
+        log_status("❌ RAW файл не создан")
         return None
 
     size = os.path.getsize(raw_path)
     if size < 5_000_000:
-        print(f"❌ RAW слишком маленький ({size} байт) — запись не удалась")
+        log_status(f"❌ RAW слишком маленький ({size} байт) — запись не удалась")
         try:
             os.remove(raw_path)
             print(f"🗑 Удалил пустой RAW: {raw_path}")
@@ -235,7 +241,7 @@ def run_daemon():
             p = next_pass(ts, sat)
 
             if not p:
-                print("Нет пролётов, сплю 10 минут")
+                log_status("Нет пролётов, сплю 10 минут")
                 time.sleep(600)
                 continue
 
@@ -245,13 +251,13 @@ def run_daemon():
 
             # Если нет AOS — пропускаем пролёт
             if aos is None:
-                print("⚠ Пролёт без AOS — пропускаю")
+                log_status("⚠ Пролёт без AOS — пропускаю")
                 time.sleep(60)
                 continue
 
             # 1) Проверяем, что есть LOS
             if los is None:
-                print("❌ Пролёт без LOS — пропускаю")
+                log_status("❌ Пролёт без LOS — пропускаю")
                 time.sleep(60)
                 continue
 
@@ -260,13 +266,13 @@ def run_daemon():
 
             # Пролёт проходит по южной стороне — точно не видно
             if info["tca_az"] > 180:
-                print("❌ Пролёт проходит по южной стороне — из окна не видно\n")
+                log_status("❌ Пролёт проходит по южной стороне — из окна не видно")
                 time.sleep(60)
                 continue
 
             # Высота TCA слишком низкая
             if info["tca_alt"] < 60:
-                print("❌ Высота TCA слишком низкая — сигнал будет слабым\n")
+                log_status("❌ Высота TCA слишком низкая — сигнал будет слабым")
                 time.sleep(60)
                 continue
 
@@ -274,7 +280,7 @@ def run_daemon():
             if not (WINDOW_MIN_AZ <= info["aos_az"] <= WINDOW_MAX_AZ or
                     WINDOW_MIN_AZ <= info["tca_az"] <= WINDOW_MAX_AZ or
                     WINDOW_MIN_AZ <= info["los_az"] <= WINDOW_MAX_AZ):
-                print("❌ Ни одна часть пролёта не проходит через сектор окна\n")
+                log_status("❌ Ни одна часть пролёта не проходит через сектор окна")
                 time.sleep(60)
                 continue
 
@@ -288,7 +294,7 @@ def run_daemon():
 
             # 3) Проверяем видимость
             if not visible:
-                print("❌ Пролёт не виден из окна — пропускаю\n")
+                log_status("❌ Пролёт не виден из окна — пропускаю")
                 time.sleep(60)
                 continue
 
