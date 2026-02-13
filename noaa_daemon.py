@@ -64,6 +64,9 @@ def analyze_pass(ts, sat, p):
     }
 
 def pass_visible(info):
+
+
+
     # Высота слишком низкая
     if info["tca_alt"] < 30:
         return False, "низкая высота (<30°)"
@@ -165,7 +168,7 @@ def record_pass(aos_dt, los_dt):
         return None
 
     size = os.path.getsize(raw_path)
-    if size < 1_000_000:
+    if size < 5_000_000:
         print(f"❌ RAW слишком маленький ({size} байт) — запись не удалась")
         try:
             os.remove(raw_path)
@@ -254,6 +257,27 @@ def run_daemon():
 
             # 2) Анализируем пролёт
             info = analyze_pass(ts, sat, p)
+
+            # Пролёт проходит по южной стороне — точно не видно
+            if info["tca_az"] > 180:
+                print("❌ Пролёт проходит по южной стороне — из окна не видно\n")
+                time.sleep(60)
+                continue
+
+            # Высота TCA слишком низкая
+            if info["tca_alt"] < 60:
+                print("❌ Высота TCA слишком низкая — сигнал будет слабым\n")
+                time.sleep(60)
+                continue
+
+            # Ни одна часть пролёта не проходит через сектор окна
+            if not (WINDOW_MIN_AZ <= info["aos_az"] <= WINDOW_MAX_AZ or
+                    WINDOW_MIN_AZ <= info["tca_az"] <= WINDOW_MAX_AZ or
+                    WINDOW_MIN_AZ <= info["los_az"] <= WINDOW_MAX_AZ):
+                print("❌ Ни одна часть пролёта не проходит через сектор окна\n")
+                time.sleep(60)
+                continue
+
             visible, reason = pass_visible(info)
 
             print(f"🛰 Пролёт NOAA-18:")
