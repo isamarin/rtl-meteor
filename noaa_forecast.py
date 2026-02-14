@@ -44,32 +44,30 @@ def generate_pdf(filename, rows):
     c = canvas.Canvas(filename, pagesize=A4)
     width, height = A4
 
-    # Декоративная шапка
     banner = "■■■■■■■■■■ NOAA — прогноз на 10 дней ■■■■■■■■■■"
     c.setFont(FONT_NAME, 18)
     text_width = c.stringWidth(banner, FONT_NAME, 18)
     c.drawString((width - text_width) / 2, height - 20*mm, banner)
 
-    # Подзаголовок
     c.setFont(FONT_NAME, 12)
-    c.drawString(20*mm, height - 30*mm,
-                 "Координаты: 57.582914, 39.907135  |  Окно: 16°–90°  |  Высота: 290 м")
+    c.drawString(
+        20*mm,
+        height - 30*mm,
+        "Координаты: 57.582914, 39.907135  |  Окно: 16°–90°  |  Высота: 290 м"
+    )
 
-    # Таблица
     c.setFont(FONT_NAME, 10)
     y = height - 45*mm
 
     headers = ["Дата", "AOS", "TCA", "LOS", "Азимут TCA", "Высота", "Окно"]
     col_widths = [25*mm, 20*mm, 20*mm, 20*mm, 25*mm, 20*mm, 15*mm]
 
-    # Заголовок таблицы
     x = 20*mm
     for h, w in zip(headers, col_widths):
         c.drawString(x, y, h)
         x += w
     y -= 7*mm
 
-    # Строки таблицы
     for row in rows:
         x = 20*mm
         for cell, w in zip(row, col_widths):
@@ -110,7 +108,8 @@ def forecast_satellite(name, catnr, days=10, pretty=False, pdf_rows=None):
     now = datetime.now(timezone.utc)
     end = now + timedelta(days=days)
 
-    t0 = ts.from_datetime(now)
+    # чуть захватываем прошлое, чтобы не терять AOS
+    t0 = ts.from_datetime(now - timedelta(minutes=5))
     t1 = ts.from_datetime(end)
 
     t, events = sat.find_events(observer, t0, t1, altitude_degrees=5.0)
@@ -135,27 +134,39 @@ def forecast_satellite(name, catnr, days=10, pretty=False, pdf_rows=None):
         print("-" * 80)
 
     for p in passes:
-        aos = p["aos"]
-        tca = p["tca"]
-        los = p["los"]
+        aos = p.get("aos")
+        tca = p.get("tca")
+        los = p.get("los")
 
-        aos_alt, aos_az, _ = (sat - observer).at(aos).altaz()
+        # без TCA или LOS пролёт нам не интересен
+        if tca is None or los is None:
+            continue
+
+        aos_alt = aos_az = None
+        if aos is not None:
+            aos_alt, aos_az, _ = (sat - observer).at(aos).altaz()
+
         tca_alt, tca_az, _ = (sat - observer).at(tca).altaz()
         los_alt, los_az, _ = (sat - observer).at(los).altaz()
 
         visible = (
-            visible_from_window(aos_az.degrees) or
+            (aos_az is not None and visible_from_window(aos_az.degrees)) or
             visible_from_window(tca_az.degrees) or
             visible_from_window(los_az.degrees)
         )
 
+        date_str = tca.utc_datetime().astimezone(MSK).strftime("%Y-%m-%d")
+        aos_str = aos.utc_datetime().astimezone(MSK).strftime("%H:%M") if aos is not None else "--:--"
+        tca_str = tca.utc_datetime().astimezone(MSK).strftime("%H:%M")
+        los_str = los.utc_datetime().astimezone(MSK).strftime("%H:%M")
+
         # PDF row
         if pdf_rows is not None:
             pdf_rows.append([
-                tca.utc_datetime().astimezone(MSK).strftime("%Y-%m-%d"),
-                aos.utc_datetime().astimezone(MSK).strftime("%H:%M"),
-                tca.utc_datetime().astimezone(MSK).strftime("%H:%M"),
-                los.utc_datetime().astimezone(MSK).strftime("%H:%M"),
+                date_str,
+                aos_str,
+                tca_str,
+                los_str,
                 f"{tca_az.degrees:.1f}°",
                 f"{tca_alt.degrees:.1f}°",
                 "ДА" if visible else "нет"
@@ -164,18 +175,21 @@ def forecast_satellite(name, catnr, days=10, pretty=False, pdf_rows=None):
         # Console output
         if pretty:
             print(
-                f"{tca.utc_datetime().astimezone(MSK):%Y-%m-%d} "
-                f"{aos.utc_datetime().astimezone(MSK):%H:%M} "
-                f"{tca.utc_datetime().astimezone(MSK):%H:%M} "
-                f"{los.utc_datetime().astimezone(MSK):%H:%M} "
+                f"{date_str} "
+                f"{aos_str} "
+                f"{tca_str} "
+                f"{los_str} "
                 f"{tca_az.degrees:10.1f}° "
                 f"{tca_alt.degrees:6.1f}° "
                 f"{'ДА' if visible else 'нет':<6}"
             )
         else:
             print(f"\n===== Пролёт {name} =====")
-            print(f"Дата: {tca.utc_datetime().astimezone(MSK):%Y-%m-%d}")
-            print(f"AOS: {aos.utc_datetime().astimezone(MSK):%H:%M:%S}  азимут {aos_az.degrees:.1f}°")
+            print(f"Дата: {date_str}")
+            if aos is not None:
+                print(f"AOS: {aos_str}:00  азимут {aos_az.degrees:.1f}°")
+            else:
+                print("AOS: нет данных (пролёт уже начался)")
             print(f"TCA: {tca.utc_datetime().astimezone(MSK):%H:%M:%S}  азимут {tca_az.degrees:.1f}°  высота {tca_alt.degrees:.1f}°")
             print(f"LOS: {los.utc_datetime().astimezone(MSK):%H:%M:%S}  азимут {los_az.degrees:.1f}°")
             print(f"Видимость из окна: {'ДА' if visible else 'нет'}")
