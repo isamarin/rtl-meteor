@@ -33,11 +33,13 @@ MSK = timezone(timedelta(hours=3))
 
 LAT = 57.582914
 LON = 39.907135
-ALT = 0.1  # км
+# Сектор окна по данным Apple Watch
+WINDOW_MIN_AZ = 16      # левая кромка
+WINDOW_MAX_AZ = 90      # правая кромка
 
-# Сектор окна: север (0°) → северо-восток (70°)
-WINDOW_MIN_AZ = 0
-WINDOW_MAX_AZ = 70
+# Высота точки наблюдения
+ALT = 0.29  # км (290 м)
+
 
 
 def log_status(msg):
