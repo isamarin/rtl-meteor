@@ -16,7 +16,6 @@ except BlockingIOError:
     print("⚠ Скрипт уже запущен, выходим.")
     sys.exit(0)
 
-# Записываем PID внутрь файла (не обязательно, но удобно)
 fp.write(str(os.getpid()))
 fp.flush()
 
@@ -33,13 +32,13 @@ MSK = timezone(timedelta(hours=3))
 
 LAT = 57.582914
 LON = 39.907135
+
 # Сектор окна по данным Apple Watch
 WINDOW_MIN_AZ = 16      # левая кромка
 WINDOW_MAX_AZ = 90      # правая кромка
 
 # Высота точки наблюдения
 ALT = 0.29  # км (290 м)
-
 
 
 def log_status(msg):
@@ -49,32 +48,32 @@ def log_status(msg):
     sys.stdout.flush()
 
 
-
 def analyze_pass(ts, sat, p):
     observer = wgs84.latlon(LAT, LON, ALT)
 
-    aos = p["aos"]
-    tca = p["tca"]
-    los = p["los"]
+    aos = p.get("aos")
+    tca = p.get("tca")
+    los = p.get("los")
 
-    aos_alt, aos_az, _ = (sat - observer).at(aos).altaz()
+    aos_alt = aos_az = None
+    if aos is not None:
+        aos_alt, aos_az, _ = (sat - observer).at(aos).altaz()
+
     tca_alt, tca_az, _ = (sat - observer).at(tca).altaz()
     los_alt, los_az, _ = (sat - observer).at(los).altaz()
 
     return {
-        "aos": aos.utc_datetime(),
+        "aos": aos.utc_datetime() if aos is not None else None,
         "tca": tca.utc_datetime(),
         "los": los.utc_datetime(),
-        "aos_az": aos_az.degrees,
+        "aos_az": aos_az.degrees if aos_az is not None else None,
         "tca_az": tca_az.degrees,
         "los_az": los_az.degrees,
         "tca_alt": tca_alt.degrees
     }
 
+
 def pass_visible(info):
-
-
-
     # Высота слишком низкая
     if info["tca_alt"] < 30:
         return False, "низкая высота (<30°)"
@@ -84,8 +83,10 @@ def pass_visible(info):
         return True, "TCA в секторе окна"
 
     # AOS или LOS в секторе — слабый, но возможный
-    if WINDOW_MIN_AZ <= info["aos_az"] <= WINDOW_MAX_AZ:
+    aos_az = info.get("aos_az")
+    if aos_az is not None and WINDOW_MIN_AZ <= aos_az <= WINDOW_MAX_AZ:
         return True, "видно начало пролёта"
+
     if WINDOW_MIN_AZ <= info["los_az"] <= WINDOW_MAX_AZ:
         return True, "виден конец пролёта"
 
@@ -111,9 +112,10 @@ def load_noaa_sat(catnr=28654):  # NOAA‑18
 # -----------------------------
 def next_pass(ts, sat, minutes_ahead=180):
     now = datetime.now(timezone.utc)
+    start = now - timedelta(minutes=5)  # захватываем немного в прошлое
     end = now + timedelta(minutes=minutes_ahead)
 
-    t0 = ts.from_datetime(now)
+    t0 = ts.from_datetime(start)
     t1 = ts.from_datetime(end)
 
     observer = wgs84.latlon(LAT, LON, ALT)
@@ -132,7 +134,17 @@ def next_pass(ts, sat, minutes_ahead=180):
             passes.append(cur)
             cur = {}
 
-    return passes[0] if passes else None
+    # выбираем первый пролёт, у которого TCA или LOS ещё не прошли
+    now_ts = ts.from_datetime(now)
+    for p in passes:
+        tca = p.get("tca")
+        los = p.get("los")
+        if tca is not None and tca > now_ts:
+            return p
+        if tca is None and los is not None and los > now_ts:
+            return p
+
+    return None
 
 
 # -----------------------------
@@ -188,22 +200,15 @@ def record_pass(aos_dt, los_dt):
     return raw_path
 
 
-
 # -----------------------------
 # Декодирование через SatDump
 # -----------------------------
 def decode_apt(raw_path, aos_dt):
-    # Папка для результата
     out_dir = os.path.join(RECORD_DIR, aos_dt.strftime("%Y%m%d_%H%M%S"))
     os.makedirs(out_dir, exist_ok=True)
 
-    # Абсолютный путь к RECORD_DIR (монтируется как /data)
     mount_dir = os.path.abspath(RECORD_DIR)
-
-    # Имя RAW внутри контейнера
     raw_name = os.path.basename(raw_path)
-
-    # Имя выходной папки внутри контейнера
     out_name = aos_dt.strftime("%Y%m%d_%H%M%S")
 
     cmd = [
@@ -221,7 +226,6 @@ def decode_apt(raw_path, aos_dt):
     print(f"🖼 Декодирую RAW → {out_dir}")
     subprocess.run(cmd, check=False)
 
-    # Ищем PNG
     pngs = [f for f in os.listdir(out_dir) if f.lower().endswith(".png")]
     if not pngs:
         print("❌ SatDump не создал PNG — декодирование не удалось")
@@ -230,6 +234,7 @@ def decode_apt(raw_path, aos_dt):
     img_path = os.path.join(out_dir, pngs[0])
     print(f"🖼 PNG готов: {img_path}")
     return img_path
+
 
 # -----------------------------
 # Главный цикл демона
@@ -251,37 +256,29 @@ def run_daemon():
             tca = p.get("tca")
             los = p.get("los")
 
-            # Если нет AOS — пропускаем пролёт
-            if aos is None:
-                log_status("⚠ Пролёт без AOS — пропускаю")
-                time.sleep(60)
-                continue
-
-            # 1) Проверяем, что есть LOS
             if los is None:
                 log_status("❌ Пролёт без LOS — пропускаю")
                 time.sleep(60)
                 continue
 
-            # 2) Анализируем пролёт
             info = analyze_pass(ts, sat, p)
 
-            # Пролёт проходит по южной стороне — точно не видно
-            if info["tca_az"] > 180:
+            if 90 <= info["tca_az"] <= 270:
                 log_status("❌ Пролёт проходит по южной стороне — из окна не видно")
                 time.sleep(60)
                 continue
 
-            # Высота TCA слишком низкая
-            if info["tca_alt"] < 60:
+            if info["tca_alt"] < 18:
                 log_status("❌ Высота TCA слишком низкая — сигнал будет слабым")
                 time.sleep(60)
                 continue
 
-            # Ни одна часть пролёта не проходит через сектор окна
-            if not (WINDOW_MIN_AZ <= info["aos_az"] <= WINDOW_MAX_AZ or
-                    WINDOW_MIN_AZ <= info["tca_az"] <= WINDOW_MAX_AZ or
-                    WINDOW_MIN_AZ <= info["los_az"] <= WINDOW_MAX_AZ):
+            aos_az = info.get("aos_az")
+            if not (
+                (aos_az is not None and WINDOW_MIN_AZ <= aos_az <= WINDOW_MAX_AZ) or
+                (WINDOW_MIN_AZ <= info["tca_az"] <= WINDOW_MAX_AZ) or
+                (WINDOW_MIN_AZ <= info["los_az"] <= WINDOW_MAX_AZ)
+            ):
                 log_status("❌ Ни одна часть пролёта не проходит через сектор окна")
                 time.sleep(60)
                 continue
@@ -289,12 +286,14 @@ def run_daemon():
             visible, reason = pass_visible(info)
 
             print(f"🛰 Пролёт NOAA-18:")
-            print(f" AOS азимут {info['aos_az']:.1f}°")
+            if aos_az is not None:
+                print(f" AOS азимут {aos_az:.1f}°")
+            else:
+                print(" AOS: нет данных (пролёт уже начался)")
             print(f" TCA азимут {info['tca_az']:.1f}° высота {info['tca_alt']:.1f}°")
             print(f" LOS азимут {info['los_az']:.1f}°")
             print(f" ➜ Оценка: {reason}")
 
-            # 3) Проверяем видимость
             if not visible:
                 log_status("❌ Пролёт не виден из окна — пропускаю")
                 time.sleep(60)
@@ -318,15 +317,11 @@ def run_daemon():
 
             if now < aos:
                 wait_seconds = int((aos - now).total_seconds())
-
-
-
                 with Progress() as progress:
                     task = progress.add_task(
                         f"⏳ Жду до AOS: {fmt_msk(aos)}",
                         total=wait_seconds
                     )
-
                     for _ in range(wait_seconds):
                         progress.update(task, advance=1)
                         time.sleep(1)
