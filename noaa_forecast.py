@@ -94,8 +94,27 @@ def load_sat(catnr):
     return ts, sats[0]
 
 
-def visible_from_window(az):
-    return WINDOW_MIN_AZ <= az <= WINDOW_MAX_AZ
+# -----------------------------
+# Логика видимости (как в демоне)
+# -----------------------------
+def pass_visible(aos_az, tca_az, los_az, tca_alt):
+    # Порог высоты — как в демоне
+    if tca_alt < 18:
+        return False
+
+    # TCA в секторе окна
+    if WINDOW_MIN_AZ <= tca_az <= WINDOW_MAX_AZ:
+        return True
+
+    # AOS в секторе
+    if aos_az is not None and WINDOW_MIN_AZ <= aos_az <= WINDOW_MAX_AZ:
+        return True
+
+    # LOS в секторе
+    if WINDOW_MIN_AZ <= los_az <= WINDOW_MAX_AZ:
+        return True
+
+    return False
 
 
 # -----------------------------
@@ -138,7 +157,6 @@ def forecast_satellite(name, catnr, days=10, pretty=False, pdf_rows=None):
         tca = p.get("tca")
         los = p.get("los")
 
-        # без TCA или LOS пролёт нам не интересен
         if tca is None or los is None:
             continue
 
@@ -149,10 +167,12 @@ def forecast_satellite(name, catnr, days=10, pretty=False, pdf_rows=None):
         tca_alt, tca_az, _ = (sat - observer).at(tca).altaz()
         los_alt, los_az, _ = (sat - observer).at(los).altaz()
 
-        visible = (
-            (aos_az is not None and visible_from_window(aos_az.degrees)) or
-            visible_from_window(tca_az.degrees) or
-            visible_from_window(los_az.degrees)
+        # новая логика видимости
+        visible = pass_visible(
+            aos_az.degrees if aos_az is not None else None,
+            tca_az.degrees,
+            los_az.degrees,
+            tca_alt.degrees
         )
 
         date_str = tca.utc_datetime().astimezone(MSK).strftime("%Y-%m-%d")
