@@ -2,6 +2,7 @@ from skyfield.api import load, wgs84
 from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 from geopy.distance import geodesic
+from geo_context.geo_context import geo_context
 
 geolocator = Nominatim(user_agent="noaa_locator")
 reverse = RateLimiter(geolocator.reverse, min_delay_seconds=1)
@@ -67,8 +68,14 @@ def direction_name(dlat, dlon):
 
 def describe_location(lat, lon):
     try:
+
+        context = geo_context(lat, lon)
+        if context:
+            return context
+
         location = reverse((lat, lon), language="ru")
         addr = location.raw.get("address", {}) if location else {}
+
 
         # 1. Океаны и моря из Nominatim
         if "ocean" in addr:

@@ -51,8 +51,8 @@ def read_shapes_from_memory(zip_bytes):
                 name_ru = translator.translate(name)
 
                 seas.append({
-                    "name": name,
-                    "name_ru": name_ru,
+                    "name_en": name,
+                    "name": name_ru,
                     "polygon": {
                         "type": poly_type,
                         "coordinates": coords
