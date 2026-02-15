@@ -1,12 +1,39 @@
 import json
 import math
 from shapely.geometry import Point, Polygon, MultiPolygon
+import pymorphy3
+morph = pymorphy3.MorphAnalyzer()
 
 # -----------------------------
 # Загрузка морей из seas.json
 # -----------------------------
 with open("seas.json", "r", encoding="utf-8") as f:
     SEAS = json.load(f)
+
+def inflect_sea(name):
+    # Пример: "Баренцево море" → "Баренцевым морем"
+    words = name.split()
+    if len(words) == 2 and words[1].lower() == "море":
+        adj = morph.parse(words[0])[0].inflect({"ins"})  # творительный падеж
+        return f"{adj.word} морем"
+    return name
+
+def inflect_ocean(name):
+    # "Тихий океан" → "Тихим океаном"
+    words = name.split()
+    if len(words) == 2 and words[1].lower() == "океан":
+        adj = morph.parse(words[0])[0].inflect({"ins"})
+        return f"{adj.word} океаном"
+    return name
+
+def inflect_ocean_region(region, ocean):
+    # region: "южной частью"
+    # ocean: "Тихого океана"
+    return f"{region} {ocean}"
+
+def inflect_country(country):
+    p = morph.parse(country)[0]
+    return p.inflect({"gen"}).word  # родительный падеж
 
 
 # -----------------------------
@@ -148,7 +175,9 @@ def geo_context(lat, lon):
             return f"над открытой частью {sea}"
 
         direction = bearing_direction(lat, lon, clat, clon)
-        return f"над {sea}, на расстоянии около {int(dist)} км {direction} от {country}"
+        sea_ins = inflect_sea(sea)
+        country_gen = inflect_country(country)
+        return f"над {sea_ins}, на расстоянии около {int(dist)} км {direction} от {country_gen}"
 
     # иначе — океан
     ocean = find_ocean(lat, lon)
