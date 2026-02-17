@@ -25,7 +25,9 @@ fp.flush()
 RECORD_DIR = "records"
 os.makedirs(RECORD_DIR, exist_ok=True)
 
-CENTER_FREQ = 137.9125e6
+CENTER_FREQ = 137.900e6
+RAW_SAMPLE_RATE = 2880000
+
 GAIN = 40
 
 MSK = timezone(timedelta(hours=3))
@@ -111,8 +113,8 @@ def analyze_pass(ts, sat, p):
 # -----------------------------
 def pass_visible(aos_az, tca_az, los_az, tca_alt):
     # Порог по высоте
-    if tca_alt < 18:
-        return False, "низкая высота (<18°)"
+    if tca_alt < 25:
+        return False, "низкая высота (<25°)"
 
     # TCA в секторе окна
     if WINDOW_MIN_AZ <= tca_az <= WINDOW_MAX_AZ:
@@ -135,7 +137,7 @@ def fmt_msk(dt):
 # -----------------------------
 # Загрузка TLE
 # -----------------------------
-def load_noaa_sat(catnr=28654):  # NOAA‑18
+def load_noaa_sat(catnr=57166):  # NOAA‑18
     ts = load.timescale()
     url = f'https://celestrak.org/NORAD/elements/gp.php?CATNR={catnr}&FORMAT=tle'
     sats = load.tle_file(url)
@@ -187,10 +189,12 @@ def next_pass(ts, sat, minutes_ahead=180):
 def record_pass(aos_dt, los_dt):
     duration = int((los_dt - aos_dt).total_seconds()) + 20
 
-    RAW_SAMPLE_RATE = 1920000
+
+
     samples = RAW_SAMPLE_RATE * duration
 
-    raw_name = f"noaa18_{aos_dt.strftime('%Y%m%d_%H%M%S_%f')}.raw"
+    raw_name = f"meteor_m2_3_{aos_dt.strftime('%Y%m%d_%H%M%S_%f')}.raw"
+
     raw_path = os.path.join(RECORD_DIR, raw_name)
 
     if os.path.exists(raw_path):
@@ -247,11 +251,11 @@ def decode_apt(raw_path, aos_dt):
         "docker", "compose", "run", "--rm",
         "satdump",
         "satdump",
-        "noaa_apt",
+        "meteor_m2_lrpt",
         "baseband",
         f"/data/{raw_name}",
         f"/data/{out_name}",
-        "--samplerate", "1920000",
+        "--samplerate", str(RAW_SAMPLE_RATE),
         "--baseband_format", "u8"
     ]
 
@@ -272,7 +276,7 @@ def decode_apt(raw_path, aos_dt):
 # Главный цикл демона
 # -----------------------------
 def run_daemon():
-    print("🚀 NOAA‑18 демон запущен")
+    print("🚀 METEOR‑M2‑3 демон запущен")
 
     try:
         while True:
@@ -331,7 +335,7 @@ def run_daemon():
                 time.sleep(60)
                 continue
 
-            print("🛰 Пролёт NOAA-18:")
+            print("🛰 Пролёт METEOR:")
             if info["aos_az"] is not None:
                 print(f" AOS азимут {info['aos_az']:.1f}°")
             else:
