@@ -33,12 +33,14 @@ ALT = 0.29  # км
 MSK = timezone(timedelta(hours=3))
 
 SAT_IDS = {
-    "NOAA-19": 33591
+    "METEOR-M2-3": 57166
 }
 
+
 FREQS = {
-    "NOAA-19": "137.100 MHz"
+    "METEOR-M2-3": "137.900 MHz"
 }
+
 
 
 MIN_ELEV = 30.0  # минимум для реального сигнала
