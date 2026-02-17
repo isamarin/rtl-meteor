@@ -240,7 +240,7 @@ def record_pass(aos_dt, los_dt):
 # -----------------------------
 # Декодирование через SatDump
 # -----------------------------
-def decode_apt(raw_path, aos_dt):
+def decode_meteor(raw_path, aos_dt):
     out_dir = os.path.join(RECORD_DIR, aos_dt.strftime("%Y%m%d_%H%M%S"))
     os.makedirs(out_dir, exist_ok=True)
 
@@ -376,7 +376,7 @@ def run_daemon():
                 continue
 
             print("🧩 Декодирование")
-            decode_apt(raw, aos_dt)
+            decode_meteor(raw, aos_dt)
 
             print("✔ Готово. Жду следующий пролёт.\n")
 
