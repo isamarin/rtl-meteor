@@ -33,9 +33,18 @@ ALT = 0.29  # км
 MSK = timezone(timedelta(hours=3))
 
 SAT_IDS = {
-    "NOAA-18": 28654,
     "NOAA-19": 33591
 }
+
+FREQS = {
+    "NOAA-19": "137.100 MHz"
+}
+
+
+MIN_ELEV = 30.0  # минимум для реального сигнала
+
+
+
 
 # -----------------------------
 # PDF генератор
@@ -99,9 +108,8 @@ def load_sat(catnr):
 # -----------------------------
 def pass_visible(aos_az, tca_az, los_az, tca_alt):
     # Порог высоты — как в демоне
-    if tca_alt < 18:
+    if tca_alt < MIN_ELEV:
         return False
-
     # TCA в секторе окна
     if WINDOW_MIN_AZ <= tca_az <= WINDOW_MAX_AZ:
         return True
@@ -205,6 +213,7 @@ def forecast_satellite(name, catnr, days=10, pretty=False, pdf_rows=None):
             )
         else:
             print(f"\n===== Пролёт {name} =====")
+            print(f"Спутник: {name}  |  Частота: {FREQS.get(name, '—')}")
             print(f"Дата: {date_str}")
             if aos is not None:
                 print(f"AOS: {aos_str}:00  азимут {aos_az.degrees:.1f}°")
@@ -230,7 +239,7 @@ if __name__ == "__main__":
     pdf_rows = [] if args.pdf else None
 
     for name, catnr in SAT_IDS.items():
-        forecast_satellite(name, catnr, days=10, pretty=args.print, pdf_rows=pdf_rows)
+        forecast_satellite(name, catnr, days=1, pretty=args.print, pdf_rows=pdf_rows)
 
     if args.pdf:
         generate_pdf(args.pdf, pdf_rows)
