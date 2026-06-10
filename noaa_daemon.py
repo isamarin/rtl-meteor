@@ -1,5 +1,6 @@
 import time
 import os
+import shutil
 import subprocess
 from datetime import datetime, timedelta, timezone
 from skyfield.api import load, wgs84
@@ -41,6 +42,40 @@ WINDOW_MAX_AZ = 90      # правая кромка
 
 # Высота точки наблюдения
 ALT = 0.29  # км (290 м)
+
+# Сборщик мусора: максимальный возраст записей (дней)
+MAX_RECORD_AGE_DAYS = 30
+
+
+def cleanup_old_records():
+    """Удаляет записи старше MAX_RECORD_AGE_DAYS и осиротевшие .raw файлы."""
+    cutoff = time.time() - MAX_RECORD_AGE_DAYS * 86400
+    removed = 0
+
+    for name in os.listdir(RECORD_DIR):
+        path = os.path.join(RECORD_DIR, name)
+
+        # Осиротевшие .raw файлы — удаляем всегда (они уже декодированы или бесполезны)
+        if name.endswith(".raw"):
+            try:
+                os.remove(path)
+                removed += 1
+                print(f"🗑 Удалён осиротевший RAW: {name}")
+            except OSError:
+                pass
+            continue
+
+        # Декодированные папки — удаляем старые
+        if os.path.isdir(path) and os.path.getmtime(path) < cutoff:
+            try:
+                shutil.rmtree(path)
+                removed += 1
+                print(f"🗑 Удалена старая запись: {name}")
+            except OSError:
+                pass
+
+    if removed:
+        print(f"🗑 Очистка завершена, удалено {removed} объектов")
 
 
 def normalize_time(t):
@@ -280,6 +315,7 @@ def run_daemon():
 
     try:
         while True:
+            cleanup_old_records()
             ts, sat = load_noaa_sat()
             p = next_pass(ts, sat)
 
@@ -376,7 +412,16 @@ def run_daemon():
                 continue
 
             print("🧩 Декодирование")
-            decode_meteor(raw, aos_dt)
+            result = decode_meteor(raw, aos_dt)
+
+            # Удаляем RAW после успешного декодирования — он огромный
+            if result and os.path.exists(raw):
+                try:
+                    size_mb = os.path.getsize(raw) / (1024 * 1024)
+                    os.remove(raw)
+                    print(f"🗑 RAW удалён: {os.path.basename(raw)} ({size_mb:.0f} МБ)")
+                except OSError:
+                    pass
 
             print("✔ Готово. Жду следующий пролёт.\n")
 
