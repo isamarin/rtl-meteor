@@ -1,13 +1,20 @@
 import time
 import os
-import shutil
 import subprocess
-from datetime import datetime, timedelta, timezone
-from skyfield.api import load, wgs84
+from datetime import datetime, timezone
 from rich.progress import Progress
 import fcntl, sys
 
-LOCK_FILE = "/tmp/rtl_meteor.lock"
+from sat_core import (
+    LAT, LON, ALT, MSK,
+    CENTER_FREQ, RAW_SAMPLE_RATE, GAIN,
+    RECORD_DIR, LOCK_FILE,
+    normalize_time, fmt_msk, log_status as _unused_log,
+    load_sat, next_pass, analyze_pass, pass_visible,
+    cleanup_old_records,
+)
+
+os.makedirs(RECORD_DIR, exist_ok=True)
 
 fp = open(LOCK_FILE, "w")
 
@@ -20,78 +27,6 @@ except BlockingIOError:
 fp.write(str(os.getpid()))
 fp.flush()
 
-# -----------------------------
-# Настройки
-# -----------------------------
-RECORD_DIR = "records"
-os.makedirs(RECORD_DIR, exist_ok=True)
-
-CENTER_FREQ = 137.900e6
-RAW_SAMPLE_RATE = 2880000
-
-GAIN = 40
-
-MSK = timezone(timedelta(hours=3))
-
-LAT = 57.582914
-LON = 39.907135
-
-# Сектор окна по данным Apple Watch
-WINDOW_MIN_AZ = 16      # левая кромка
-WINDOW_MAX_AZ = 90      # правая кромка
-
-# Высота точки наблюдения
-ALT = 0.29  # км (290 м)
-
-# Сборщик мусора: максимальный возраст записей (дней)
-MAX_RECORD_AGE_DAYS = 30
-
-
-def cleanup_old_records():
-    """Удаляет записи старше MAX_RECORD_AGE_DAYS и осиротевшие .raw файлы."""
-    cutoff = time.time() - MAX_RECORD_AGE_DAYS * 86400
-    removed = 0
-
-    for name in os.listdir(RECORD_DIR):
-        path = os.path.join(RECORD_DIR, name)
-
-        # Осиротевшие .raw файлы — удаляем всегда (они уже декодированы или бесполезны)
-        if name.endswith(".raw"):
-            try:
-                os.remove(path)
-                removed += 1
-                print(f"🗑 Удалён осиротевший RAW: {name}")
-            except OSError:
-                pass
-            continue
-
-        # Декодированные папки — удаляем старые
-        if os.path.isdir(path) and os.path.getmtime(path) < cutoff:
-            try:
-                shutil.rmtree(path)
-                removed += 1
-                print(f"🗑 Удалена старая запись: {name}")
-            except OSError:
-                pass
-
-    if removed:
-        print(f"🗑 Очистка завершена, удалено {removed} объектов")
-
-
-def normalize_time(t):
-    """Гарантируем: либо None, либо одиночный Time."""
-    if t is None:
-        return None
-    # Skyfield Time может быть массивом — берём первый элемент
-    try:
-        # У Time есть атрибут shape: () — скаляр, (N,) — массив
-        shape = getattr(t, 'shape', None)
-        if shape is not None and shape != ():
-            return t[0]
-    except Exception:
-        pass
-    return t
-
 
 def log_status(msg):
     now = datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")
@@ -101,135 +36,14 @@ def log_status(msg):
 
 
 # -----------------------------
-# Анализ пролёта (безопасный)
-# -----------------------------
-def analyze_pass(ts, sat, p):
-    observer = wgs84.latlon(LAT, LON, ALT)
-
-    aos = normalize_time(p.get("aos"))
-    tca = normalize_time(p.get("tca"))
-    los = normalize_time(p.get("los"))
-
-    if tca is None or los is None:
-        raise ValueError("В analyze_pass нет TCA или LOS")
-
-    # AOS
-    if aos is not None:
-        aos_alt, aos_az, _ = (sat - observer).at(aos).altaz()
-        aos_alt = aos_alt.degrees
-        aos_az = aos_az.degrees
-    else:
-        aos_alt = None
-        aos_az = None
-
-    # TCA
-    tca_alt, tca_az, _ = (sat - observer).at(tca).altaz()
-    tca_alt = tca_alt.degrees
-    tca_az = tca_az.degrees
-
-    # LOS
-    los_alt, los_az, _ = (sat - observer).at(los).altaz()
-    los_alt = los_alt.degrees
-    los_az = los_az.degrees
-
-    return {
-        "aos_time": aos,
-        "tca_time": tca,
-        "los_time": los,
-        "aos_az": aos_az,
-        "tca_az": tca_az,
-        "los_az": los_az,
-        "tca_alt": tca_alt,
-    }
-
-
-# -----------------------------
-# Логика видимости (как в прогнозе)
-# -----------------------------
-def pass_visible(aos_az, tca_az, los_az, tca_alt):
-    # Порог по высоте
-    if tca_alt < 25:
-        return False, "низкая высота (<25°)"
-
-    # TCA в секторе окна
-    if WINDOW_MIN_AZ <= tca_az <= WINDOW_MAX_AZ:
-        return True, "TCA в секторе окна"
-
-    # AOS или LOS в секторе — слабый, но возможный
-    if aos_az is not None and WINDOW_MIN_AZ <= aos_az <= WINDOW_MAX_AZ:
-        return True, "видно начало пролёта"
-
-    if WINDOW_MIN_AZ <= los_az <= WINDOW_MAX_AZ:
-        return True, "виден конец пролёта"
-
-    return False, "пролёт вне сектора окна"
-
-
-def fmt_msk(dt):
-    return dt.astimezone(MSK).strftime("%Y-%m-%d %H:%M:%S %Z")
-
-
-# -----------------------------
-# Загрузка TLE
-# -----------------------------
-def load_noaa_sat(catnr=57166):  # NOAA‑18
-    ts = load.timescale()
-    url = f'https://celestrak.org/NORAD/elements/gp.php?CATNR={catnr}&FORMAT=tle'
-    sats = load.tle_file(url)
-    return ts, sats[0]
-
-
-# -----------------------------
-# Поиск следующего пролёта
-# -----------------------------
-def next_pass(ts, sat, minutes_ahead=180):
-    now = datetime.now(timezone.utc)
-    start = now - timedelta(minutes=5)  # чуть в прошлое
-    end = now + timedelta(minutes=minutes_ahead)
-
-    t0 = ts.from_datetime(start)
-    t1 = ts.from_datetime(end)
-
-    observer = wgs84.latlon(LAT, LON, ALT)
-    t, events = sat.find_events(observer, t0, t1, altitude_degrees=5.0)
-
-    passes = []
-    cur = {}
-
-    for ti, ev in zip(t, events):
-        if ev == 0:          # AOS
-            cur = {"aos": ti}
-        elif ev == 1:        # TCA
-            cur["tca"] = ti
-        elif ev == 2:        # LOS
-            cur["los"] = ti
-            passes.append(cur)
-            cur = {}
-
-    now_ts = ts.from_datetime(now)
-    for p in passes:
-        tca = normalize_time(p.get("tca"))
-        los = normalize_time(p.get("los"))
-        if tca is not None and tca > now_ts:
-            return p
-        if tca is None and los is not None and los > now_ts:
-            return p
-
-    return None
-
-
-# -----------------------------
 # Запись сигнала
 # -----------------------------
 def record_pass(aos_dt, los_dt):
     duration = int((los_dt - aos_dt).total_seconds()) + 20
 
-
-
     samples = RAW_SAMPLE_RATE * duration
 
     raw_name = f"meteor_m2_3_{aos_dt.strftime('%Y%m%d_%H%M%S_%f')}.raw"
-
     raw_path = os.path.join(RECORD_DIR, raw_name)
 
     if os.path.exists(raw_path):
@@ -316,7 +130,7 @@ def run_daemon():
     try:
         while True:
             cleanup_old_records()
-            ts, sat = load_noaa_sat()
+            ts, sat = load_sat()
             p = next_pass(ts, sat)
 
             if not p:
